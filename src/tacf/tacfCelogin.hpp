@@ -1,11 +1,13 @@
 #pragma once
 
+#include "ce_logger.hpp"
+
 #include <CeLogin.h>
 
 #include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <string>
-
 /**
  * TacfCelogin class for access control file (ACF) processing.
  * @brief ACF processing, celogin specific.
@@ -46,11 +48,11 @@ class TacfCelogin
         // Return celogin specific error code.
         if (CeLogin::CeLoginRc::Success != authRc)
         {
-            return authRc;
+            CE_LOG_DEBUG("Failed to process key ", pubkey, " error code ",
+                         authRc);
         }
-
         // Or success.
-        return 0;
+        return authRc;
     }
 
     /**
@@ -76,7 +78,8 @@ class TacfCelogin
                 const uint8_t* pubkey, const uint64_t pubkeySize,
                 const std::string& serial, std::string& auth,
                 CeLogin::AcfType& type, uint64_t& expires,
-                std::string& expireDate, uint64_t& replayId)
+                std::string& expireDate, uint64_t& replayId,
+                CeLogin::AcfUserFields& acfUserFields)
     {
         uint64_t replayIdNew;
         uint64_t timestamp = getTimestamp();
@@ -103,14 +106,17 @@ class TacfCelogin
         // Return celogin specific error code.
         if (CeLogin::CeLoginRc::Success != authRc)
         {
+            CE_LOG_DEBUG("Failed to process key ", pubkey, " error code ",
+                         authRc);
             return authRc;
         }
 
-        CeLogin::AcfUserFields acfUserFields;
-
         // If ACF was reset-admin type then populate admin auth code.
-        if (CeLogin::AcfType::AcfType_AdminReset == type)
+        if (CeLogin::AcfType::AcfType_AdminReset == type ||
+            CeLogin::AcfType::AcfType_ResourceDump == type ||
+            CeLogin::AcfType::AcfType_BmcShell == type)
         {
+            CE_LOG_DEBUG("Processing  type ", type);
             // Validate ACF and retrieve user field
             authRc = CeLogin::checkAuthorizationAndGetAcfUserFieldsV2(
                 acf, acfSize, nullptr, 0, timestamp, pubkey, pubkeySize,
@@ -119,16 +125,21 @@ class TacfCelogin
             // Return celogin specific error code.
             if (CeLogin::CeLoginRc::Success != authRc)
             {
+                CE_LOG_DEBUG("Failed to process key ", pubkey, " error code ",
+                             authRc);
                 return authRc;
             }
-
-            // Get the encrypted admin password as a string.
-            auth = std::string(acfUserFields.mTypeSpecificFields
-                                   .mAdminResetFields.mAdminAuthCode,
-                               acfUserFields.mTypeSpecificFields
-                                       .mAdminResetFields.mAdminAuthCode +
-                                   acfUserFields.mTypeSpecificFields
-                                       .mAdminResetFields.mAdminAuthCodeLength);
+            if (CeLogin::AcfType::AcfType_AdminReset == type)
+            {
+                // Get the encrypted admin password as a string.
+                auth = std::string(
+                    acfUserFields.mTypeSpecificFields.mAdminResetFields
+                        .mAdminAuthCode,
+                    acfUserFields.mTypeSpecificFields.mAdminResetFields
+                            .mAdminAuthCode +
+                        acfUserFields.mTypeSpecificFields.mAdminResetFields
+                            .mAdminAuthCodeLength);
+            }
         }
 
         // Get the ACF expiration details.
@@ -143,6 +154,7 @@ class TacfCelogin
                                           serial.size(), ceLoginType, expires,
                                           ceLoginDate, version, hasReplay))
         {
+            CE_LOG_DEBUG("Processing key ", pubkey, " type ", ceLoginType);
             // Get expiration date as string.
             expireDate = getDate(ceLoginDate);
 
@@ -157,14 +169,17 @@ class TacfCelogin
                 }
                 else
                 {
+                    CE_LOG_ERROR("Replay ID invalid");
                     // Valid replay ID was required.
-                    return 1;
+                    return CeLogin::CeLoginRc::Failure;
                 }
             }
+            return CeLogin::CeLoginRc::Success;
         }
+        CE_LOG_ERROR("extractACFMetadataV2 failed");
 
         // And return success.
-        return 0;
+        return CeLogin::CeLoginRc::Failure;
     }
 
     /**

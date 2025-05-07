@@ -269,6 +269,27 @@ class TacfDbus
                                "UserPrivilege", message);
     }
 
+    static int invokeBmcShell(const std::string& shellScript, uint64_t timeout,
+                              bool issueBmcDump)
+    {
+        try
+        {
+            // Craft the dbus method for invoking the shell script.
+            auto bus    = sdbusplus::bus::new_system();
+            auto method = bus.new_method_call(
+                "xyz.openbmc_project.acfshell", "/xyz/openbmc_project/acfshell",
+                "xyz.openbmc_project.TacfShell", "start");
+            method.append(shellScript, timeout, issueBmcDump);
+
+            bus.call(method);
+        }
+        catch (const sdbusplus::exception_t& e)
+        {
+            return 1;
+        }
+        return 0;
+    }
+
     /**
      * Create a new user using dbus interface.
      * @brief Create a user.

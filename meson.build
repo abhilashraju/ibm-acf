@@ -10,7 +10,6 @@ cxx = meson.get_compiler('cpp')
 pam = cxx.find_library('pam', required: true)
 libcrypto = dependency('libcrypto', required : true)
 libssl = dependency('libssl', required : true)
-
 if get_option('tests').enabled()
   #Link with subproject and generate cli utility to gen acf
   sp = subproject('ce-login', default_options : 'bin=true')
@@ -68,7 +67,8 @@ if get_option('tests').enabled()
 else
   sdbusplus = dependency('sdbusplus', version : '>=1.0.0', required : true, fallback : ['sdbusplus', 'sdbusplus_dep' ])
   #library we normally build/install in openbmc context
-  sp = subproject('ce-login')
+  #sp = subproject('ce-login')
+  sp=subproject('ce-login', default_options : 'bin=true')
   libcelogin_dep = sp.get_variable('lib_ce_login_dep')
   deps = [sdbusplus, libcrypto, libssl, libcelogin_dep, pam]
 
