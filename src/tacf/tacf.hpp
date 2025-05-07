@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ce_logger.hpp"
 #include "tacfCelogin.hpp"
 #include "tacfDbus.hpp"
 #include "tacfSpw.hpp"
@@ -11,16 +12,6 @@
 #include <iterator>
 #include <string>
 #include <vector>
-
-constexpr unsigned int TargetedAcf::acfTypeInvalid =
-    CeLogin::AcfType::AcfType_Invalid;
-
-constexpr unsigned int TargetedAcf::acfTypeAdminReset =
-    CeLogin::AcfType::AcfType_AdminReset;
-
-constexpr unsigned int TargetedAcf::acfTypeService =
-    CeLogin::AcfType::AcfType_Service;
-
 constexpr auto invalidReplayId = TacfCelogin::invalidReplayId;
 
 const auto pubkeysProd = std::to_array<std::string>(
@@ -38,7 +29,7 @@ constexpr auto serialNumberEmpty = "       ";
 
 constexpr auto serialNumberUnset = "UNSET";
 
-constexpr auto adminName = "admin";
+constexpr auto adminName   = "admin";
 constexpr auto serviceName = "service";
 
 constexpr auto privilegeAdmin = "priv-admin";
@@ -78,8 +69,7 @@ class Tacf : TargetedAcf
 
     Tacf(logging_function_pam logger, field_mode_function_pam fieldmode,
          void* handle) :
-        loggerPam(logger),
-        fieldModePam(fieldmode), pamHandle(handle)
+        loggerPam(logger), fieldModePam(fieldmode), pamHandle(handle)
     {}
 
     /**
@@ -193,15 +183,17 @@ class Tacf : TargetedAcf
                         unsigned int& type, std::string& expires,
                         uint64_t& replayId,
                         TargetedAcf::TargetedAcfAction action,
-                        const char* password) final override
+                        const char* password,
+                        CeLogin::AcfUserFields& acfUserFields) final override
     {
         // Get serial number.
         std::string serial;
+
         if (retrieveSerial(serial))
         {
+            CE_LOG_DEBUG("Failed to retrieve serial number");
             return tacfFail;
         }
-
         // Get list of public keys to check signature against.
         std::vector<std::string> keyring;
         copy(begin(pubkeysProd), end(pubkeysProd), back_inserter(keyring));
@@ -244,9 +236,10 @@ class Tacf : TargetedAcf
                     CeLogin::AcfType::AcfType_Invalid;
 
                 // Install ACF.
-                authRc = authProvider.install(
-                    acf, acfSize, pubkey.data(), pubkey.size(), serial, auth,
-                    ceLoginAcfType, expireTime, expires, replayId);
+                authRc = authProvider.install(acf, acfSize, pubkey.data(),
+                                              pubkey.size(), serial, auth,
+                                              ceLoginAcfType, expireTime,
+                                              expires, replayId, acfUserFields);
 
                 // Convert from celogin ACF type to targeted ACF type.
                 type = translateAcfType(ceLoginAcfType);
@@ -262,6 +255,7 @@ class Tacf : TargetedAcf
             // If action successful.
             if (CeLogin::CeLoginRc::Success == authRc)
             {
+                CE_LOG_DEBUG("Acf Install succeful");
                 // Return success.
                 return tacfSuccess;
             }
@@ -367,23 +361,92 @@ class Tacf : TargetedAcf
      *
      * @return A non-zero error value or zero on success.
      */
-    virtual int installAcf(const uint8_t* acf, size_t size)
+    virtual int installAcf(const uint8_t* acf, size_t size, unsigned int type,
+                           const CeLogin::AcfUserFields& acfUserFields)
     {
         if (!acf || !size)
         {
             log("acfv2 install error");
             return tacfFail;
         }
+        int rc = tacfFail;
+        switch (type)
+        {
+            case acfTypeService:
+            {
+                rc = writeFile(acf, size, acfFilePath);
 
-        int rc = writeFile(acf, size, acfFilePath);
+                // Enable the service user account using dbus interface.
+                TacfDbus().enableUser(serviceName);
 
-        // Enable the service user account using dbus interface.
-        TacfDbus().enableUser(serviceName);
+                // Unlock service user account using dbus interface.
+                TacfDbus().unlockUser(serviceName);
+                return rc;
+            }
+            break;
+            case acfTypeResourceDump:
+            {
+                std::string acfFileName = makeUniqueAcfPath();
+                rc                      = writeFile(acf, size, acfFileName);
+                if (!rc)
+                {
+                    TacfDbus().intiateResourceDump(acfFileName);
+                }
+            }
+            break;
+            case acfTypeBmcShell:
+            {
+                rc = invokeAcfShell(acfUserFields);
+            }
 
-        // Unlock service user account using dbus interface.
-        TacfDbus().unlockUser(serviceName);
+            break;
 
+            default:
+                log("acfv2 install error");
+                return tacfFail;
+        }
         return rc;
+    }
+    static std::string makeUniqueAcfPath()
+    {
+        auto now = std::chrono::system_clock::now();
+
+        // Convert the time to a string in the format "YYYY-MM-DD_HH-MM-SS"
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm* tm   = std::localtime(&t);
+        std::string timestamp;
+        char buffer[20];
+        strftime(buffer, 20, "%Y-%m-%d_%H-%M-%S", tm);
+        timestamp = buffer;
+
+        // Generate the file path
+        std::string filePath = "/etc/acf/" + timestamp + ".acf";
+        return filePath;
+    }
+
+    int invokeAcfShell(const CeLogin::AcfUserFields& acfUserFields)
+    {
+        CE_LOG_DEBUG(
+            "Invoke shell script", " script length",
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mBmcShellLength,
+            " timeout",
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mBmcTimeout,
+            " issue dump",
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mIssueBmcDump);
+        std::string shellScript(
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mBmcShell,
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mBmcShellLength);
+        uint64_t timeout =
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mBmcTimeout;
+        bool issueBmcDump =
+            acfUserFields.mTypeSpecificFields.mBmcShellFields.mIssueBmcDump;
+        if (TacfDbus::invokeBmcShell(shellScript, timeout, issueBmcDump))
+        {
+            CE_LOG_ERROR("Shell invocation failed");
+            return tacfSystemError;
+        }
+        CE_LOG_DEBUG("Shell invocation success");
+        return tacfSuccess;
     }
 
     /**
@@ -555,6 +618,12 @@ class Tacf : TargetedAcf
 
             case CeLogin::AcfType::AcfType_Service:
                 tacfType = TargetedAcf::acfTypeService;
+                break;
+            case CeLogin::AcfType::AcfType_ResourceDump:
+                tacfType = TargetedAcf::acfTypeResourceDump;
+                break;
+            case CeLogin::AcfType::AcfType_BmcShell:
+                tacfType = TargetedAcf::acfTypeBmcShell;
                 break;
 
             default:

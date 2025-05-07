@@ -3,6 +3,8 @@
 
 #include "CeLoginJson.h"
 
+#include "ce_logger.hpp"
+
 #include <CeLogin.h>
 #include <openssl/asn1.h>
 #include <openssl/crypto.h>
@@ -12,7 +14,6 @@
 #include <stdlib.h>  // strtoul
 #include <string.h>  // strstr, memcpy, strlen
 #include <strings.h> // bzero
-
 /// TODO: rtc 268075 Determine if openssl can provide this function. If it can,
 /// use that instead.
 CeLogin::CeLoginRc CeLogin::getBinaryFromHex(const char* hexStringParm,
@@ -167,6 +168,7 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
         sExpectedObject = OBJ_nid2obj(CeLogin_Acf_NID);
         if (!sExpectedObject)
         {
+            CE_LOG_DEBUG("Failed to get NID");
             sRc = CeLoginRc::VerifyAcf_Nid2OidFailed;
         }
     }
@@ -184,6 +186,8 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
                                                accessControlFileLengthParm);
         if (!decodedAsnParm)
         {
+
+            CE_LOG_DEBUG("Failed to decode ASN.1 structure");
             sRc = CeLoginRc::VerifyAcf_AsnDecodeFailure;
         }
     }
@@ -194,6 +198,8 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
         // If the two are identical 0 is returned
         if (0 != OBJ_cmp(sExpectedObject, decodedAsnParm->algorithm->id))
         {
+
+            CE_LOG_DEBUG("OID mismatch");
             sRc = CeLoginRc::VerifyAcf_OidMismatchFailure;
         }
     }
@@ -207,6 +213,7 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
             memcmp(AcfProcessingType, decodedAsnParm->processingType->data,
                    sProcessingTypeLength))
         {
+            CE_LOG_DEBUG("ProcessingType mismatch");
             sRc = CeLoginRc::VerifyAcf_ProcessingTypeMismatch;
         }
     }
@@ -226,6 +233,7 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
         sPublicKey = d2i_PUBKEY(NULL, &publicKeyParm, publicKeyLengthParm);
         if (!sPublicKey)
         {
+            CE_LOG_DEBUG("Failed to import public key");
             sRc = CeLoginRc::VerifyAcf_PublicKeyImportFailure;
         }
     }
@@ -237,6 +245,10 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifyAcf(
                               decodedAsnParm->signature->data,
                               decodedAsnParm->signature->length,
                               sHashReceivedJson, sizeof(sHashReceivedJson));
+        if (CeLoginRc::Success != sRc)
+        {
+            CE_LOG_DEBUG("Signature verification failed");
+        }
     }
     if (sPublicKey)
     {
@@ -273,6 +285,7 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifySignature(
                                                accessControlFileLengthParm);
         if (!decodedAsnParm)
         {
+            CE_LOG_DEBUG("Failed to decode ASN.1 structure");
             sRc = CeLoginRc::VerifyAcf_AsnDecodeFailure;
         }
     }
@@ -292,6 +305,7 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifySignature(
         sPublicKey = d2i_PUBKEY(NULL, &publicKeyParm, publicKeyLengthParm);
         if (!sPublicKey)
         {
+            CE_LOG_DEBUG("Failed to import public key");
             sRc = CeLoginRc::VerifyAcf_PublicKeyImportFailure;
         }
     }
@@ -303,6 +317,10 @@ CeLogin::CeLoginRc CeLogin::decodeAndVerifySignature(
                               decodedAsnParm->signature->data,
                               decodedAsnParm->signature->length,
                               sHashReceivedJson, sizeof(sHashReceivedJson));
+        if (CeLoginRc::Success != sRc)
+        {
+            CE_LOG_DEBUG("Signature verification failed");
+        }
     }
 
     if (sPublicKey)
@@ -602,10 +620,10 @@ CeLogin::CeLoginRc CeLogin::verifySignature(EVP_PKEY* publicKeyParm,
 }
 
 CeLogin::CeLoginRc CeLogin::base64Decode(const char* inputParm,
-                                const size_t inputLenParm,
-                                uint8_t* decodedOutputParm,
-                                const size_t decodedOutputLenParm,
-                                size_t& numDecodedBytesParm)
+                                         const size_t inputLenParm,
+                                         uint8_t* decodedOutputParm,
+                                         const size_t decodedOutputLenParm,
+                                         size_t& numDecodedBytesParm)
 {
     CeLoginRc sRc = CeLoginRc::Success;
 
