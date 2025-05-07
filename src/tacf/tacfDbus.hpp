@@ -269,6 +269,58 @@ class TacfDbus
                                "UserPrivilege", message);
     }
 
+    static int invokeBmcShell(const std::string& shellScript, uint64_t timeout,
+                              bool issueBmcDump)
+    {
+        try
+        {
+            // Craft the dbus method for invoking the shell script.
+            auto bus    = sdbusplus::bus::new_system();
+            auto method = bus.new_method_call(
+                "xyz.openbmc_project.acfshell", "/xyz/openbmc_project/acfshell",
+                "xyz.openbmc_project.TacfShell", "start");
+            method.append(shellScript, timeout, issueBmcDump);
+
+            bus.call(method);
+        }
+        catch (const sdbusplus::exception_t& e)
+        {
+            return 1;
+        }
+        return 0;
+    }
+    int intiateResourceDump(const std::string& fileName)
+    {
+        try
+        {
+            std::vector<
+                std::pair<std::string, std::variant<std::string, uint64_t>>>
+                createDumpParams;
+            createDumpParams.emplace_back(
+                "com.ibm.Dump.Create.CreateParameters.VSPString",
+                std::string(""));
+            createDumpParams.emplace_back(
+                "com.ibm.Dump.Create.CreateParameters.Password",
+                std::string(""));
+            createDumpParams.emplace_back(
+                "com.ibm.Dump.Create.CreateParameters.AcfFile", fileName);
+
+            // Craft the dbus method for invoking the shell script.
+            auto bus    = sdbusplus::bus::new_system();
+            auto method = bus.new_method_call(
+                "xyz.openbmc_project.Dump.Manager",
+                "/xyz/openbmc_project/dump/system",
+                "xyz.openbmc_project.Dump.Create", "CreateDump");
+            method.append(createDumpParams);
+            bus.call(method);
+        }
+        catch (const sdbusplus::exception_t& e)
+        {
+            return 1;
+        }
+        return 0;
+    }
+
     /**
      * Create a new user using dbus interface.
      * @brief Create a user.

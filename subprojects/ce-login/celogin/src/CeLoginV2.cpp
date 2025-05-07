@@ -2,6 +2,8 @@
 #include "CeLoginJson.h"
 #include "CeLoginUtil.h"
 
+#include "ce_logger.hpp"
+
 #include <CeLogin.h>
 #include <openssl/crypto.h>
 #include <openssl/rsa.h>
@@ -9,7 +11,6 @@
 #include <string.h>
 
 #include <new>
-
 using CeLogin::CeLoginJsonData;
 using CeLogin::CeLoginRc;
 using CeLogin::CELoginSequenceV1;
@@ -32,26 +33,32 @@ static CeLoginRc validateAndParseAcfV2(
 
     if (!accessControlFileParm)
     {
+        CE_LOG_DEBUG("ACF pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidAcfPtr;
     }
     else if (0 == accessControlFileLengthParm)
     {
+        CE_LOG_DEBUG("ACF length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidAcfLength;
     }
     else if (!publicKeyParm)
     {
+        CE_LOG_DEBUG("Public key pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidPublicKeyPtr;
     }
     else if (0 == publicKeyLengthParm)
     {
+        CE_LOG_DEBUG("Public key length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidPublicKeyLength;
     }
     else if (!serialNumberParm)
     {
+        CE_LOG_DEBUG("Serial number pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidSerialNumberPtr;
     }
     else if (0 == serialNumberLengthParm)
     {
+        CE_LOG_DEBUG("Serial number length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidSerialNumberLength;
     }
 
@@ -249,26 +256,32 @@ CeLoginRc CeLogin::verifyACFForBMCUploadV2(
 
     if (!accessControlFileParm)
     {
+        CE_LOG_DEBUG("ACF pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidAcfPtr;
     }
     else if (0 == accessControlFileLengthParm)
     {
+        CE_LOG_DEBUG("ACF length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidAcfLength;
     }
     else if (!publicKeyParm)
     {
+        CE_LOG_DEBUG("Public key pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidPublicKeyPtr;
     }
     else if (0 == publicKeyLengthParm)
     {
+        CE_LOG_DEBUG("Public key length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidPublicKeyLength;
     }
     else if (!serialNumberParm)
     {
+        CE_LOG_DEBUG("Serial number pointer is NULL");
         sRc = CeLoginRc::GetSevAuth_InvalidSerialNumberPtr;
     }
     else if (0 == serialNumberLengthParm)
     {
+        CE_LOG_DEBUG("Serial number length is 0");
         sRc = CeLoginRc::GetSevAuth_InvalidSerialNumberLength;
     }
     // No check for PW parms; may or may not be required.
@@ -276,6 +289,7 @@ CeLoginRc CeLogin::verifyACFForBMCUploadV2(
     // Allocate on heap to avoid blowing the stack
     if (CeLoginRc::Success == sRc)
     {
+        CE_LOG_DEBUG("Allocating JSON data");
         sJsonData = (CeLoginJsonData*)OPENSSL_malloc(sizeof(CeLoginJsonData));
         if (sJsonData)
         {
@@ -298,6 +312,10 @@ CeLoginRc CeLogin::verifyACFForBMCUploadV2(
             timeSinceUnixEpochInSecondsParm, publicKeyParm, publicKeyLengthParm,
             serialNumberParm, serialNumberLengthParm, *sJsonData,
             sExpirationTime);
+        if (CeLoginRc::Success != sRc)
+        {
+            CE_LOG_DEBUG("Failed to validate and parse ACF");
+        }
     }
 
     // This interface only supports V1 and V2
@@ -306,6 +324,7 @@ CeLoginRc CeLogin::verifyACFForBMCUploadV2(
         if (CeLogin::CeLoginVersion1 != sJsonData->mVersion &&
             CeLogin::CeLoginVersion2 != sJsonData->mVersion)
         {
+            CE_LOG_DEBUG("Unsupported version");
             sRc = CeLoginRc::UnsupportedVersion;
         }
     }
@@ -313,14 +332,20 @@ CeLoginRc CeLogin::verifyACFForBMCUploadV2(
     // Verify Replay ID
     if (CeLoginRc::Success == sRc)
     {
+
         sRc = doFullReplayValidation(
             sJsonData->mType, sJsonData->mReplayInfo.mReplayIdPresent,
             currentReplayIdParm, sJsonData->mReplayInfo.mReplayId,
             updatedReplayIdParm);
+        if (CeLoginRc::Success != sRc)
+        {
+            CE_LOG_DEBUG("Replay ID mismatch");
+        }
     }
 
     if (CeLoginRc::Success == sRc)
     {
+        CE_LOG_DEBUG("Updating user fields for type ", sJsonData->mType);
         acfTypeParm = sJsonData->mType;
         expirationTimeParm = sExpirationTime;
     }
@@ -399,6 +424,7 @@ static CeLoginRc checkAuthorizationAndGetAcfUserFieldsV2Internal(
 
     if (CeLoginRc::Success == sRc)
     {
+        CE_LOG_DEBUG("Validating and parsing ACF");
         sRc = validateAndParseAcfV2(
             accessControlFileParm, accessControlFileLengthParm,
             timeSinceUnixEpochInSecondsParm, publicKeyParm, publicKeyLengthParm,
@@ -412,6 +438,7 @@ static CeLoginRc checkAuthorizationAndGetAcfUserFieldsV2Internal(
         if (CeLogin::CeLoginVersion1 != sJsonData->mVersion &&
             CeLogin::CeLoginVersion2 != sJsonData->mVersion)
         {
+            CE_LOG_DEBUG("Unsupported version");
             sRc = CeLoginRc::UnsupportedVersion;
         }
     }
@@ -455,6 +482,7 @@ static CeLoginRc checkAuthorizationAndGetAcfUserFieldsV2Internal(
 
     if (CeLoginRc::Success == sRc)
     {
+        CE_LOG_DEBUG("Updating user fields for type ", sJsonData->mType);
         userFieldsParm.mVersion = sJsonData->mVersion;
         userFieldsParm.mType = sJsonData->mType;
         userFieldsParm.mExpirationTime = sExpirationTime;
@@ -570,6 +598,7 @@ CeLoginRc CeLogin::checkAuthorizationAndGetAcfUserFieldsV2(
         // updated replay ID was never persisted.
         if (sAcfReplayId != currentReplayIdParm)
         {
+            CE_LOG_DEBUG("Replay ID mismatch");
             sRc = CeLoginRc::ReplayIdPersistenceFailure;
         }
     }
